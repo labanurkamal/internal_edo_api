@@ -9,8 +9,8 @@ ENV PYTHONDONTWRITECODE=1 \
     POETRY_NO_INTERACTION=1 \
     POETRY_VIRTUALENVS_CREATE=false
 
-COPY internal_edo_api/src/pyproject.toml pyproject.toml
-COPY internal_edo_api/src/poetry.lock poetry.lock
+COPY internal_edo_api/pyproject.toml pyproject.toml
+COPY internal_edo_api/poetry.lock poetry.lock
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
