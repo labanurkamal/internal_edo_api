@@ -1,4 +1,4 @@
 #!/bin/sh
 set -eu
 
-exec uvicorn main:app --host 0.0.0.0 --port 8122
+exec uvicorn src.main:app --host 0.0.0.0 --port 8122
