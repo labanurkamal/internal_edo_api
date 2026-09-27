@@ -1,0 +1,11 @@
+services:
+  internal_edo_api:
+    build:
+      context: ..
+      dockerfile: deploy/internal_edo_api/Dockerfile
+    container_name: internal_edo_api
+    env_file:
+      - .env
+    restart: unless-stopped
+    ports:
+      - "8122:8122"
