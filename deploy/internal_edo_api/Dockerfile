@@ -7,7 +7,8 @@ ENV PYTHONDONTWRITECODE=1 \
     PYTHONIOENCODING=utf-8 \
     TZ="Asia/Atyrau" \
     POETRY_NO_INTERACTION=1 \
-    POETRY_VIRTUALENVS_CREATE=false
+    POETRY_VIRTUALENVS_CREATE=false \
+    PYTHONPATH=/opt/app/src
 
 COPY internal_edo_api/pyproject.toml pyproject.toml
 COPY internal_edo_api/poetry.lock poetry.lock
