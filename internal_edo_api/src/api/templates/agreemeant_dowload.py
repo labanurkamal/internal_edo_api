@@ -5,6 +5,7 @@
 import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.worksheet.datavalidation import DataValidation
+from openpyxl.formatting.rule import FormulaRule
 from io import BytesIO
 
 # ── Стили ─────────────────────────────────────────────────────────────────────
@@ -42,6 +43,7 @@ def _cell(ws, coord, value="", fill=None, font=None, align=None, brd=True):
 
 OBJECT_ROWS = [
     # (ключ, пример_значения, обязательный)
+    ("Тип договора",                      "Субаренда",                                           True),
     ("Название здания (KZ)",              "«Евразия» СО",                                        True),
     ("Название здания (RU)",              "ТЦ «Евразия»",                                        True),
     ("Тип помещения (KZ)",                "тұрғын емес",                                         True),
@@ -52,21 +54,21 @@ OBJECT_ROWS = [
     ("Собственник (RU)",                  "ТОО «Айсер»",                                        True),
     ("Госакт номер",                      "0214702",                                             True),
     ("Госакт дата",                       "16 января 2004",                                      True),
-    ("Договор аренды номер",              "17",                                                  True),
-    ("Договор аренды дата",               "01.01.2026",                                          True),
+    ("Основной договор аренды — номер (для субаренды)", "17",                                False),
+    ("Основной договор аренды — дата (для субаренды)",  "01.01.2026",                        False),
     ("",                                  "",                                                    False),  # разделитель
-    ("Субарендодатель — Тип орг.",        "ИП",                                                  True),
-    ("Субарендодатель — Название",        "Сайланбаева",                                         True),
-    ("Субарендодатель — ФИО (KZ)",        "Сайланбаева А.Б.",                                    True),
-    ("Субарендодатель — ФИО (RU)",        "Сайланбаевой А.Б.,",                                  True),
-    ("Субарендодатель — ИИН",             "990404400077",                                        True),
-    ("Субарендодатель — Талон",           "KZ43TWQ03888390",                                     True),
-    ("Субарендодатель — Уд. личн.",       "048161731",                                           True),
-    ("Субарендодатель — Дата уд.",        "01.04.2021",                                          True),
-    ("Субарендодатель — Адрес (KZ)",      "Астана қ, Жилой Массив Ақ-Бұлақ-2, Переулок Бағлан 5/18", True),
-    ("Субарендодатель — Адрес (RU)",      "г. Астана, Жилой Массив Ақ-Бұлақ-2, Переулок Бағлан 5/18", True),
-    ("Субарендодатель — БИК",             "CASPKZKA",                                            True),
-    ("Субарендодатель — Счёт IBAN",       "KZ33722S000035874795",                                True),
+    ("Арендодатель — Тип орг.",           "ИП",                                                  True),
+    ("Арендодатель — Название",           "Сайланбаева",                                         True),
+    ("Арендодатель — ФИО директора (KZ)", "Сайланбаева А.Б.",                                    True),
+    ("Арендодатель — ИИН/БИН",            "990404400077",                                        True),
+    ("Арендодатель — ИИН директора (для ТОО/АО)", "",                                            False),
+    ("Арендодатель — Талон (для ИП)",     "KZ43TWQ03888390",                                     False),
+    ("Арендодатель — Уд. личн.",          "048161731",                                           False),
+    ("Арендодатель — Дата уд.",           "01.04.2021",                                          False),
+    ("Арендодатель — Адрес (KZ)",         "Астана қ, Жилой Массив Ақ-Бұлақ-2, Переулок Бағлан 5/18", True),
+    ("Арендодатель — Адрес (RU)",         "г. Астана, Жилой Массив Ақ-Бұлақ-2, Переулок Бағлан 5/18", True),
+    ("Арендодатель — БИК",                "CASPKZKA",                                            True),
+    ("Арендодатель — Счёт IBAN",          "KZ33722S000035874795",                                True),
 ]
 
 
@@ -77,7 +79,7 @@ def _build_object_sheet(wb):
 
     # Заголовок
     ws.merge_cells("A1:B1")
-    _cell(ws, "A1", "Настройки объекта и субарендодателя (заполняется один раз)",
+    _cell(ws, "A1", "Объект и арендодатель (заполняется один раз на файл)",
           fill=HEADER, font=Font(bold=True, size=13, name="Arial", color="FFFFFF"),
           align=center, brd=False)
     ws.row_dimensions[1].height = 28
@@ -91,22 +93,23 @@ def _build_object_sheet(wb):
         ws.row_dimensions[i].height = 18
         if not key:  # разделитель
             ws.merge_cells(f"A{i}:B{i}")
-            _cell(ws, f"A{i}", "── Субарендодатель ──",
+            _cell(ws, f"A{i}", "── Арендодатель (в субаренде — субарендодатель) ──",
                   fill=BLUE, font=Font(bold=True, size=10, name="Arial", color="000000"),
                   align=center)
             continue
         fill = YELLOW if required else GREEN
         _cell(ws, f"A{i}", key,     fill=GRAY,  font=nfont, align=left)
-        _cell(ws, f"B{i}", example, fill=fill,  font=nfont, align=left)
+        _cell(ws, f"B{i}", example, fill=fill,  font=nfont, align=left).number_format = TEXT_FORMAT
 
-    # Валидация типа орг субарендодателя
+    # Выпадающие списки: тип договора и форма арендодателя
+    rows = {key: i for i, (key, _, _) in enumerate(OBJECT_ROWS, start=3)}
     dv = DataValidation(type="list", formula1='"ИП,ТОО,АО"', showDropDown=False)
     ws.add_data_validation(dv)
-    # Строка 17 = "Субарендодатель — Тип орг." (3 + 13 - 1 = 15... считаем)
-    for i, (key, _, _) in enumerate(OBJECT_ROWS, start=3):
-        if key == "Субарендодатель — Тип орг.":
-            dv.sqref = f"B{i}"
-            break
+    dv.sqref = f"B{rows['Арендодатель — Тип орг.']}"
+    dv_kind = DataValidation(type="list", formula1='"Аренда,Субаренда"', showDropDown=False,
+                             showErrorMessage=True, errorTitle="Тип договора", error="Выберите: Аренда или Субаренда")
+    ws.add_data_validation(dv_kind)
+    dv_kind.sqref = f"B{rows['Тип договора']}"
 
 
 # ── Лист "Договора" ───────────────────────────────────────────────────────────
@@ -125,7 +128,7 @@ def _build_object_sheet(wb):
     ("Тип орг. арендатора",      "ИП / ТОО / АО / ЖСШ",     "ИП",                         True,  False),
     ("Название арендатора",      "без ИП/ТОО",               "Даурен",                     True,  False),
     ("ФИО арендатора (KZ)",      "Фамилия Имя Отчество",     "Әбенов Дәурен Қайратович",   True,  False),
-    ("ИИН арендатора",           "12 цифр",                  "920730401856",               True,  False),
+    ("ИИН/БИН арендатора",       "ИИН для ИП, БИН для ТОО",  "920730401858",               True,  False),
     ("Уд. личн. арендатора",     "номер без пробелов",       "073456219",                  True,  False),
     ("Дата уд. арендатора",      "дд.мм.гггг",               "05.11.2020",                 True,  False),
     ("Талон арендатора",         "KZ10TWQ...",               "KZ10TWQ07812340",            True,  False),
@@ -133,10 +136,16 @@ def _build_object_sheet(wb):
     ("Адрес арендатора (RU)",    "Назарбаева д.44 (без ул.)", "Назарбаева д.44",           True,  False),
     ("БИК арендатора",           "CASPKZKA / IRTYKZKA",      "CASPKZKA",                   True,  False),
     ("Счёт IBAN арендатора",     "KZ...",                    "KZ07722S000054321098",       True,  False),
-    ("Телефон арендатора",       "+ 7 XXX XXX XX XX",        "+ 7 707 456 78 90",          True,  False),
+    ("Телефон арендатора",       "+77071234567 или 87071234567", "+77074567890",           True,  False),
+    ("ИИН директора арендатора", "только для ТОО/АО",        "",                           False, False),
 ]
 
 COL_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+# Текстовые колонки: иначе Excel превращает ИИН в 9,2E+11 (теряет цифры), срезает ведущие нули
+# у номера удостоверения, а номер договора «1/12» превращает в дату
+TEXT_COLS = {"A", "M", "N", "P", "S", "T", "U", "V"}
+TEXT_FORMAT = "@"
 
 
 def _build_contracts_sheet(wb):
@@ -151,7 +160,7 @@ def _build_contracts_sheet(wb):
     ws.row_dimensions[1].height = 28
 
     # Строка 2 — легенда
-    ws.merge_cells("A2:U2")
+    ws.merge_cells(f"A2:{COL_LETTERS[len(ДОГОВОРА_COLS)-1]}2")
     ws["A2"].value = "🟡 Жёлтые — обязательные поля"
     ws["A2"].fill  = YELLOW
     ws["A2"].font  = Font(size=10, name="Arial", color="806000")
@@ -192,6 +201,8 @@ def _build_contracts_sheet(wb):
             c.font   = nfont
             c.alignment = left
             c.border = border
+            if col in TEXT_COLS:
+                c.number_format = TEXT_FORMAT
 
     # Валидация типа орг
     dv = DataValidation(type="list", formula1='"ИП,ТОО,АО,ЖСШ"', showDropDown=False,
@@ -206,15 +217,21 @@ def _build_contracts_sheet(wb):
     ws.add_data_validation(dv2)
     dv2.sqref = "F5:F104"
 
+    # ИИН директора нужен только ТОО/АО: для ИП ячейка серая и ввод запрещён
+    gray = PatternFill("solid", fgColor="D9D9D9")
+    ws.conditional_formatting.add("V5:V104", FormulaRule(formula=['$J5="ИП"'], fill=gray))
+    dv3 = DataValidation(type="custom", formula1='$J5<>"ИП"', showErrorMessage=True,
+                         errorTitle="Не заполняется для ИП",
+                         error="ИИН директора указывается только для ТОО/АО. У ИП это тот же ИИН из колонки M.")
+    ws.add_data_validation(dv3)
+    dv3.sqref = "V5:V104"
+
     # Ширины колонок
     widths = [14,14,14,14, 7,14, 10,12,12, 10,16,28, 16,14,14,18, 22,22,12,26, 18,
-              12,18,8,18,18]
+              16,18,8,18,18]
     for i, w in enumerate(widths):
         ws.column_dimensions[COL_LETTERS[i]].width = w
 
-    # Скрываем авто-колонки V-Z
-    for i in range(21, len(ДОГОВОРА_COLS)):
-        ws.column_dimensions[COL_LETTERS[i]].hidden = True
 
 
 # ── Лист "Инструкция" ─────────────────────────────────────────────────────────

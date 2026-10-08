@@ -10,6 +10,9 @@ from io import BytesIO
 import openpyxl
 from num2words import num2words
 
+from core.banks import BANKS
+from core.declension import genitive_fio
+
 from schemas import (
     SubleaseContractData, ContractDate, FinancialTerms,
     BuildingInfo, LessorInfo, TenantInfo,
@@ -35,14 +38,8 @@ ORG_TYPE_KZ = {"ИП": "ЖК", "ТОО": "ЖШС", "АО": "АҚ", "ЖСШ": "Ж
 KBE_MAP = {"ИП": "19", "ТОО": "17", "АО": "17", "ЖСШ": "17"}
 
 # Банк по БИК
-BANK_BY_BIK = {
-    "CASPKZKA": "АҚ «Kaspi Bank»",
-    "IRTYKZKA": "АҚ «Халық Банк»",
-    "HSBKKZKX": "АҚ «HSBC»",
-    "TSESKZKA": "АҚ «Центркредит»",
-    "KZKOKZKX": "АҚ «Казкоммерцбанк»",
-    "ABKLKZKA": "АҚ «АБК Банк»",
-}
+# Банк по БИК (казахское название; русское — в core.banks). Неизвестный БИК — ошибка строки.
+BANK_BY_BIK = {bik: bank.kz for bik, bank in BANKS.items()}
 
 # Тип помещения KZ → RU (для выпадающего списка в Excel)
 ROOM_TYPE_RU = {
@@ -110,15 +107,8 @@ def _org_names(org_type: str, name: str) -> tuple[str, str]:
 
 
 def _genitive(full: str) -> str:
-    parts = full.strip().split()
-    if not parts:
-        return full
-    s = parts[0]
-    if s.endswith(("ова", "ева", "ина")):
-        s = s[:-1] + "ой"
-    elif s.endswith("ая"):
-        s = s[:-2] + "ой"
-    return " ".join([s] + parts[1:]) + ","
+    """Родительный падеж ФИО для русского текста («в лице директора …»)."""
+    return genitive_fio(full)
 
 
 def _address_ru(street: str) -> str:
@@ -141,6 +131,25 @@ def _kbe(org_type: str) -> str:
 
 # ── Парсер листа "Объект" ─────────────────────────────────────────────────────
 
+# Новое название поля в шаблоне Excel → старое (ключ) для совместимости со старыми файлами
+OBJECT_KEY_ALIASES = {
+    "Субарендодатель — Тип орг.": ("Арендодатель — Тип орг.",),
+    "Субарендодатель — Название": ("Арендодатель — Название",),
+    "Субарендодатель — ФИО (KZ)": ("Арендодатель — ФИО директора (KZ)",),
+    "Субарендодатель — ФИО (RU)": ("Арендодатель — ФИО директора (RU, род. падеж)",),
+    "Субарендодатель — ИИН": ("Арендодатель — ИИН/БИН",),
+    "Субарендодатель — ИИН директора": ("Арендодатель — ИИН директора (для ТОО/АО)",),
+    "Субарендодатель — Талон": ("Арендодатель — Талон (для ИП)",),
+    "Субарендодатель — Уд. личн.": ("Арендодатель — Уд. личн.",),
+    "Субарендодатель — Дата уд.": ("Арендодатель — Дата уд.",),
+    "Субарендодатель — Адрес (KZ)": ("Арендодатель — Адрес (KZ)",),
+    "Субарендодатель — Адрес (RU)": ("Арендодатель — Адрес (RU)",),
+    "Субарендодатель — БИК": ("Арендодатель — БИК",),
+    "Субарендодатель — Счёт IBAN": ("Арендодатель — Счёт IBAN",),
+    "Договор аренды номер": ("Основной договор аренды — номер (для субаренды)",),
+    "Договор аренды дата": ("Основной договор аренды — дата (для субаренды)",),
+}
+
 def _parse_object_sheet(ws) -> tuple[BuildingInfo, LessorInfo]:
     """
     Лист 'Объект' — вертикальный формат: колонка A = ключ, колонка B = значение.
@@ -154,7 +163,12 @@ def _parse_object_sheet(ws) -> tuple[BuildingInfo, LessorInfo]:
             rows[key] = val
 
     def g(key: str) -> str:
-        return rows.get(key, "")
+        # Шаблон Excel переименовал поля («Субарендодатель — …» → «Арендодатель — …»);
+        # старые файлы тоже принимаются
+        for name in (key, *OBJECT_KEY_ALIASES.get(key, ())):
+            if rows.get(name):
+                return rows[name]
+        return ""
 
     # Арендодатель
     lessor_org_type = g("Субарендодатель — Тип орг.")
@@ -165,6 +179,8 @@ def _parse_object_sheet(ws) -> tuple[BuildingInfo, LessorInfo]:
     lessor_bik      = g("Субарендодатель — БИК")
 
     lessor = LessorInfo(
+        org_type=lessor_org_type.strip().upper() or "ИП",
+        director_iin=g("Субарендодатель — ИИН директора"),
         name_kz=lessor_name_kz,
         name_ru=lessor_name_ru,
         director_kz=lessor_full_kz,

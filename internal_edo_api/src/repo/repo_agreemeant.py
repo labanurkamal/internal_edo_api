@@ -8,9 +8,13 @@ from abc import ABC, abstractmethod
 from io import BytesIO
 from pathlib import Path
 
+from dataclasses import dataclass
+from functools import lru_cache
+
 from docxtpl import DocxTemplate
 
 from schemas import SubleaseContractData
+from repo.party_text import party_context
 
 
 class ContractRenderer(ABC):
@@ -55,6 +59,8 @@ class SubleaseContractRenderer(DocxtplRenderer):
 
     def render(self, data: SubleaseContractData) -> BytesIO:
         context = data.to_template_context()
+        # Преамбула и реквизиты сторон зависят от формы (ИП / ТОО), а не от шаблона
+        context.update(party_context(data, phone_display=context["tenant_phone"]))
         return self._render_context(context)
 
     def filename(self, data: SubleaseContractData) -> str:
@@ -63,14 +69,31 @@ class SubleaseContractRenderer(DocxtplRenderer):
         # Убираем тип орг и кавычки: ТОО «Алтын Нур» → Алтын_Нур
         name = re.sub(r"^(ИП|ТОО|АО|ЖСШ)\s*[«\"']?", "", data.tenant.name_ru)
         name = name.replace("»", "").replace("«", "").strip().replace(" ", "_")
-        return f"Договор_Субаренды_{num}_{name}.docx"
+        kind = "Аренды" if data.category == "LEASE" else "Субаренды"
+        return f"Договор_{kind}_{num}_{name}.docx"
 
 
 # ──────────────────────────────────────────────
-# Реестр рендереров. Новый тип → одна строка здесь.
+# Шаблоны договоров: отдельный .docx на каждый тип, данные и конвейер общие.
+# Новая редакция шаблона = новый файл с новой версией; созданные договоры хранят,
+# какой версией они сделаны (lease_contracts.template_code / template_version).
 # ──────────────────────────────────────────────
-RENDERERS: dict[str, type[ContractRenderer]] = {
-    "sublease": SubleaseContractRenderer,
-    # "lease": LeaseContractRenderer,      # пример расширения
-    # "employment": EmploymentRenderer,    # пример расширения
+TEMPLATES_DIR = Path(__file__).parent.parent / "api" / "templates"
+
+
+@dataclass(frozen=True)
+class ContractTemplate:
+    code: str      # = category
+    version: int
+    path: Path
+
+
+CONTRACT_TEMPLATES: dict[str, ContractTemplate] = {
+    "LEASE": ContractTemplate("LEASE", 1, TEMPLATES_DIR / "Договор_Аренды_v1.docx"),
+    "SUBLEASE": ContractTemplate("SUBLEASE", 3, TEMPLATES_DIR / "Договор_Субаренды_v3.docx"),
 }
+
+
+@lru_cache
+def renderer_for(category: str) -> SubleaseContractRenderer:
+    return SubleaseContractRenderer(CONTRACT_TEMPLATES[category].path)

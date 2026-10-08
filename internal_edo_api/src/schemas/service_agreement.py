@@ -4,7 +4,27 @@ Pydantic v2 модели для договоров субаренды.
 """
 
 from __future__ import annotations
-from pydantic import BaseModel, Field
+from typing import Annotated, Literal
+
+from pydantic import AfterValidator, BaseModel, BeforeValidator, Field, StringConstraints, model_validator
+
+from core.phone import format_phone, normalize_phone
+from core.tin import validate_tin
+
+# ИИН/БИН: 12 цифр с верной контрольной цифрой. По нему сверяется подписант ЭЦП, поэтому
+# ошибка здесь потом даёт отказ в подписании (SIGNING_ERROR_TIN_*)
+Tin = Annotated[str, StringConstraints(strip_whitespace=True), AfterValidator(validate_tin)]
+# ИИН директора: пусто (ИП, у которого ИИН уже в iin) или корректный ИИН
+OptionalTin = Annotated[str, StringConstraints(strip_whitespace=True),
+                        AfterValidator(lambda v: v if v == "" else validate_tin(v))]
+
+# Телефон хранится как +77011112233; принимается +7…, 8…, 7… с пробелами/дефисами
+Phone = Annotated[str, BeforeValidator(normalize_phone)]
+
+# Форма стороны определяет текст преамбулы и реквизитов:
+# ИП — ИИН и талон; ТОО/АО — БИН, Устав и ИИН директора
+OrgType = Literal["ИП", "ТОО", "АО", "ЖСШ"]
+ORG_TYPES_WITH_BIN = ("ТОО", "АО")
 
 
 # ── Вспомогательные модели ────────────────────────────────────────────────────
@@ -39,18 +59,21 @@ class BuildingInfo(BaseModel):
     owner_act_num:       str
     owner_act_date_kz:   str   # напр. 2004 жылғы 16 қаңтардағы
     owner_act_date_ru:   str   # напр. 16 января 2004г
-    lease_contract_num:  str
-    lease_contract_date: str
+    # Основной договор аренды — только для субаренды (на нём основано право сдавать в субаренду)
+    lease_contract_num:  str = ""
+    lease_contract_date: str = ""
 
 
 class LessorInfo(BaseModel):
-    """Субарендодатель — из листа 'Объект', меняется редко."""
+    """Арендодатель/субарендодатель — из листа 'Объект', меняется редко."""
+    org_type:     OrgType = "ИП"
     name_kz:      str
     name_ru:      str
     director_kz:  str   # именительный: Сайланбаева А.Б.
     director_ru:  str   # родительный:  Сайланбаевой А.Б.,
     director_short: str # сокращённо:   Сайланбаева А.Б.
-    iin:          str
+    iin:          Tin   # ИИН для ИП, БИН для ТОО/АО
+    director_iin: OptionalTin = ""  # ИИН директора — для ТОО/АО
     talon:        str
     id_num:       str
     id_date:      str
@@ -65,13 +88,15 @@ class LessorInfo(BaseModel):
 # ── Арендатор ─────────────────────────────────────────────────────────────────
 
 class TenantInfo(BaseModel):
-    """Субарендатор — из листа 'Договора', каждый раз разный."""
+    """Арендатор/субарендатор — из листа 'Договора', каждый раз разный."""
+    org_type:       OrgType = "ИП"
     name_kz:        str
     name_ru:        str
     director_kz:    str   # именительный полный
     director_ru:    str   # родительный (авто или ручной)
     director_short: str   # авто: Фамилия И.О.
-    iin:            str
+    iin:            Tin   # ИИН для ИП, БИН для ТОО/АО — по нему сверяется подписант ЭЦП
+    director_iin:   OptionalTin = ""  # ИИН директора — обязателен для ТОО/АО
     talon:          str
     id_num:         str
     id_date:        str
@@ -81,7 +106,7 @@ class TenantInfo(BaseModel):
     bank:           str   # авто по bik
     kbe:            str   # авто по типу орг
     account:        str
-    phone:          str
+    phone:          Phone = ""
 
 
 # ── Финансы ───────────────────────────────────────────────────────────────────
@@ -104,7 +129,8 @@ class FinancialTerms(BaseModel):
 # ── Главная модель договора ───────────────────────────────────────────────────
 
 class SubleaseContractData(BaseModel):
-    """Все данные для генерации одного договора субаренды."""
+    """Все данные для генерации одного договора аренды или субаренды (category)."""
+    category:        Literal["LEASE", "SUBLEASE"] = "SUBLEASE"
     contract_number: str
     signed_date:     ContractDate
     start_date:      ContractDate
@@ -113,6 +139,14 @@ class SubleaseContractData(BaseModel):
     building:        BuildingInfo
     lessor:          LessorInfo
     tenant:          TenantInfo
+
+    @model_validator(mode="after")
+    def _check_category_fields(self):
+        if self.category == "SUBLEASE" and not (self.building.lease_contract_num and self.building.lease_contract_date):
+            raise ValueError("для субаренды нужны номер и дата основного договора аренды")
+        if self.tenant.org_type in ORG_TYPES_WITH_BIN and not self.tenant.director_iin:
+            raise ValueError(f"для арендатора {self.tenant.org_type} нужен ИИН директора")
+        return self
 
     def to_template_context(self) -> dict:
         """Разворачивает модель в плоский dict для docxtpl."""
@@ -131,6 +165,7 @@ class SubleaseContractData(BaseModel):
             "date_month_kz":            d.month_kz,
             "date_month_ru":            d.month_ru,
             "date_year":                d.year,
+            "date_month_num":           d.month_num,
             # Начало
             "start_day":                s.day,
             "start_month_kz":           s.month_kz,
@@ -201,5 +236,9 @@ class SubleaseContractData(BaseModel):
             "tenant_bank":              t.bank,
             "tenant_kbe":               t.kbe,
             "tenant_account":           t.account,
-            "tenant_phone":             t.phone,
+            "tenant_phone":             format_phone(t.phone),  # в договоре: +7 701 111 22 33
         }
+
+
+# Модель общая для аренды и субаренды; старое имя оставлено для совместимости
+LeaseContractData = SubleaseContractData

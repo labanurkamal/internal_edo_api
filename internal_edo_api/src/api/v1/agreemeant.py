@@ -13,14 +13,15 @@ import zipfile
 
 from schemas import SubleaseContractData
 from services import ContractService, GeneratedContract
-from repo import SubleaseContractRenderer
+from repo import CONTRACT_TEMPLATES, SubleaseContractRenderer
 from helpers import parse_excel
 from db.minio import MinioStorage
 from core.config import Settings
 
 router = APIRouter(prefix="/contracts", tags=["contracts"])
 
-TEMPLATE_PATH = Path(__file__).parent.parent / "templates" / "Договор_Субаренды_ШАБЛОН_v2.docx"
+# Старые эндпоинты (только .docx, без БД) используют актуальный шаблон субаренды
+TEMPLATE_PATH = CONTRACT_TEMPLATES["SUBLEASE"].path
 
 
 # ── Response schemas ──────────────────────────────────────────────────────────
