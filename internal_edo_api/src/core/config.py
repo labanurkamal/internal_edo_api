@@ -35,9 +35,19 @@ class MinioSettings(ModelConfigs):
     public_read: bool = True
     base_url: str = Field(..., alias="MINIO_DOMAIN")
 
-class Settings(BaseSettings):
+
+class GotenbergSettings(ModelConfigs):
+    url: str = Field("http://gotenberg:3000", alias="GOTENBERG_URL")
+    timeout_seconds: float = Field(60.0, alias="GOTENBERG_TIMEOUT_SECONDS")
+
+
+class Settings(ModelConfigs):
     db: DBSettings = DBSettings()
     minio: MinioSettings = MinioSettings()
+    gotenberg: GotenbergSettings = GotenbergSettings()
+    # Фоновая обработка пакетной загрузки. При нескольких репликах можно оставить включённой
+    # во всех: строки разбираются через SKIP LOCKED и не обрабатываются дважды
+    lease_worker_enabled: bool = Field(True, alias="LEASE_WORKER_ENABLED")
 
 
 settings = Settings()
