@@ -173,6 +173,7 @@ class LeaseContractService:
 
                 pdf_doc_id = uuid.uuid4()
                 post_data = self._post_data(lease, data)
+                post_data["document_id"] = str(pdf_doc_id)
 
                 xml = build_lease_xml(lease_xml_fields(lease, data, pdf_doc_id, payda, pdf_hash))
                 await self._upload(xml_key, xml, "application/xml", uploaded)
