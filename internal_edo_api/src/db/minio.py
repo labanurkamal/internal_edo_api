@@ -7,6 +7,7 @@ from __future__ import annotations
 from io import BytesIO
 from datetime import timedelta
 import json
+from urllib.parse import quote
 
 from minio import Minio
 from minio.error import S3Error
@@ -29,6 +30,14 @@ class MinioStorage:
         self._base_url     = settings.minio.base_url.rstrip("/")
         self._presigned_ttl = timedelta(hours=settings.minio.presigned_ttl_hours)
         self._ensure_bucket()
+
+    @property
+    def bucket(self) -> str:
+        return self._bucket
+
+    @property
+    def base_url(self) -> str:
+        return self._base_url
 
     def _ensure_bucket(self) -> None:
         """
@@ -73,7 +82,7 @@ class MinioStorage:
           - public_read=False → presigned URL (истекает через presigned_ttl_hours)
         """
         if self._public_read:
-            return f"{self._base_url}/{self._bucket}/{object_name}"
+            return f"{self._base_url}/{self._bucket}/{quote(object_name)}"
         return self._client.presigned_get_object(
             bucket_name=self._bucket,
             object_name=object_name,
@@ -86,3 +95,11 @@ class MinioStorage:
 
     def delete(self, object_name: str) -> None:
         self._client.remove_object(self._bucket, object_name)
+
+    def download(self, object_name: str) -> bytes:
+        response = self._client.get_object(self._bucket, object_name)
+        try:
+            return response.read()
+        finally:
+            response.close()
+            response.release_conn()

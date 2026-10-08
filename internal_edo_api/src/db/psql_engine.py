@@ -6,8 +6,16 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession, create_asyn
 
 from core.config import settings
 
+def _async_dsn(dsn: str) -> str:
+    """DB_URL общий с asyncpg-пулом (postgresql://...); SQLAlchemy нужен явный драйвер."""
+    for prefix in ("postgresql://", "postgres://"):
+        if dsn.startswith(prefix):
+            return "postgresql+asyncpg://" + dsn[len(prefix):]
+    return dsn
+
+
 engine = create_async_engine(
-    url=settings.db.dsn,
+    url=_async_dsn(settings.db.dsn),
     pool_pre_ping=True,
     echo=False,
     pool_recycle=1800,
@@ -20,7 +28,7 @@ engine = create_async_engine(
 )
 
 session = async_sessionmaker(
-    engine=engine,
+    bind=engine,
     expire_on_commit=False,
     class_=AsyncSession
 )
