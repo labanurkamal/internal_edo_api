@@ -45,9 +45,8 @@ class Settings(ModelConfigs):
     db: DBSettings = DBSettings()
     minio: MinioSettings = MinioSettings()
     gotenberg: GotenbergSettings = GotenbergSettings()
-    # Фоновая обработка пакетной загрузки. При нескольких репликах можно оставить включённой
-    # во всех: строки разбираются через SKIP LOCKED и не обрабатываются дважды
     lease_worker_enabled: bool = Field(True, alias="LEASE_WORKER_ENABLED")
+    public_api_url: str = Field("", alias="PUBLIC_API_URL")
 
 
 settings = Settings()

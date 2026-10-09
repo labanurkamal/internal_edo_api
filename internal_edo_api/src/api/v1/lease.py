@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, Up
 from pydantic import BaseModel
 
 from clients import GotenbergClient, PdfConversionError
-from core.config import Settings
+from core.config import Settings, settings
 from db.minio import MinioStorage
 from db.psql_engine import session as session_factory
 from schemas import SubleaseContractData
@@ -92,12 +92,18 @@ def get_batch_service() -> LeaseBatchService:
     return LeaseBatchService(storage=_storage(), session_factory=session_factory, lease_service=get_lease_service())
 
 
+def _public_url(path: str) -> str:
+    """Путь ручки → ссылка для клиента: с префиксом PUBLIC_API_URL, если он задан."""
+    base = settings.public_api_url.rstrip("/")
+    return f"{base}{path}" if base else path
+
+
 def _status_url(batch_id: uuid.UUID) -> str:
-    return router.url_path_for("get_batch_status", batch_id=str(batch_id))
+    return _public_url(router.url_path_for("get_batch_status", batch_id=str(batch_id)))
 
 
 def _errors_url(batch_id: uuid.UUID) -> str:
-    return router.url_path_for("download_batch_errors", batch_id=str(batch_id))
+    return _public_url(router.url_path_for("download_batch_errors", batch_id=str(batch_id)))
 
 
 def _to_response(result: LeaseContractResult) -> LeaseContractResponse:
